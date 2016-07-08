@@ -90,7 +90,6 @@ namespace Gntc {
 			float mutation_probability = 0.05,
 			bool symmetric = 1,
 			size_t max_generations = 0
-			size_t 
 		) {
 			bool genbased_algo = max_generations != 0;
 			
