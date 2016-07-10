@@ -8,7 +8,6 @@
 #include <map>
 #include <functional>
 #include <algorithm>
-#include <chrono>
 #include <random>
 #include <cassert>
 
@@ -21,9 +20,30 @@
 
 namespace Genetics {
 
-	inline float random_chance() {
-		return(static_cast<float>(rand()) / static_cast<float>(RAND_MAX));
-	}
+	// Достаточно синглтона Мэйерса
+	// Когда буду делать более навороченную штуку, можно будет подумать и о многопоточном
+	class RandomFloatGenerator {
+	private:
+		std::mt19937 engine;
+		std::uniform_real_distribution<float> distribution;
+
+		RandomFloatGenerator() : distribution(0.0, 1.0) {
+			std::random_device rd;
+			engine.seed(rd());
+		}
+		RandomFloatGenerator(RandomFloatGenerator const&) = delete;
+		RandomFloatGenerator& operator=(RandomFloatGenerator&) = delete;
+		~RandomFloatGenerator() { }
+	public:
+		static RandomFloatGenerator& get_instance() {
+			static RandomFloatGenerator instance;
+			return instance;
+		}
+
+		float get_random_float() {
+			return distribution(engine);
+		}
+	};
 
 	/*
 	 *	Класс популяции служит для снижения сложности восприятия работы с особями.
@@ -60,7 +80,7 @@ namespace Genetics {
 		}
 	};
 
-	template<typename Fitness_t, typename DNA>
+	template<typename DNA, typename Fitness_t>
 	class World {
 	private:
 		std::function<DNA(DNA const&, DNA const&)> crossover;
@@ -80,9 +100,9 @@ namespace Genetics {
 			symmetric_crossover(symmetric_crossover) { }
 		~World() = default;
 
-		Population Evolve(
+		Population<DNA> evolve(
 			// Предтечи
-			Population generation0,
+			Population<DNA> generation0,
 			// При каком уровне приспособленности остановить выполнение
 			// Ноль, или эквивалентный ему уровень - вплоть до идеального представителя вида
 			Fitness_t required_fitness,
@@ -96,57 +116,64 @@ namespace Genetics {
 			size_t max_generations = 0
 		) {
 			bool is_generation_based = max_generations != 0;
+			size_t active_parents;
 			if (parents_size == 0)
-				parents_size = generation0.size();
+				parents_size = generation0->size();
 
-			//std::vector<DNA> Parents(generation0);
 			std::vector<DNA> Parents(parents_size);
-			std::copy_n(generation0->begin(), parents_size, Parents.begin());
+			active_parents = std::min(parents_size, generation0->size());
+			std::copy_n(generation0->begin(), active_parents, Parents.begin());
 
 			std::multimap<Fitness_t, DNA> Field;
 			size_t generation_number = 0;
-			Fitness_t achieved_fitness = Parents[0];
-			for (size_t i = 1; i < Parents.size(); ++i)
+			Fitness_t achieved_fitness = fitness(Parents[0]);
+			for (size_t i = 1; i < active_parents; ++i)
 				if (fitness(Parents[i]) < achieved_fitness)
 					achieved_fitness = fitness(Parents[i]);
 
 			// Цикл скрещивания
-			// (генетический алгоритм ⇒ поколение < максимум поколений) и (необходимая приспособленность < достигнутой приспособленности)
+			// пока (генетический алгоритм ⇒ поколение < максимум поколений) и (необходимая приспособленность < достигнутой приспособленности)
+			// Выход в середине тела цикла
 			DNA crossbuffer;
-			typename std::multimap<Fitness_t, DNA>::iterator iter;
+			RandomFloatGenerator& generator = RandomFloatGenerator::get_instance();
 
-			while ((!is_generation_based || generation_number < max_generations) && (required_fitness < achieved_fitness)) {
+			for (;;) {
 				Field.clear();
 
 				//Скрещивание
-				for (size_t i = 0; i < Parents.size(); ++i) {
-					for (size_t j = (symmetric ? i+1 : 0); j < Parents.size(); ++j) {
+				for (size_t i = 0; i < active_parents; ++i) {
+					for (size_t j = (symmetric_crossover ? i+1 : 0); j < active_parents; ++j) {
 						crossbuffer = crossover(Parents[i], Parents[j]);
-						if (random_chance() <= mutation_probability)
+						if (generator.get_random_float() <= mutation_probability)
 							mutate(&crossbuffer);
 						Field.emplace(fitness(crossbuffer), crossbuffer);
 					}
 				}
 
-				iter = Field.begin();
-				achieved_fitness = iter->first; //Лучший
+				achieved_fitness = Field.begin()->first; //Лучший
 				++generation_number;
-				for (size_t i = 0; i < Parents.size(); ++i) {
-					assert(iter != Field.end());
-					Parents[i] = iter->second;
-					++iter;
+
+				if ((is_generation_based && generation_number >= max_generations) || !(required_fitness < achieved_fitness))
+					break;
+				
+				size_t parent_number = 0;
+				for (typename std::multimap<Fitness_t, DNA>::iterator iter = Field.begin(); parent_number < Parents.size() && iter != Field.end(); ++parent_number, ++iter) {
+					Parents[parent_number] = iter->second;
 				}
+				active_parents = parent_number;
 
 			}
-			Population result(std::vector<DNA>(Field.size()), generation0.get_generation_number() + generation_number);
-			return Parents[0];
-		}
-
-		size_t acc_gennum() {
-			return gennum_cache;
+			Population<DNA> result(
+				std::vector<DNA>(Field.size()), 
+				generation0.get_generation_number() + generation_number);
+			std::transform(
+				Field.begin(), 
+				Field.end(), 
+				result->begin(), 
+				[](std::pair<Fitness_t, DNA> p) -> DNA { return p.second; });
+			return result;
 		}
 	};
-
 }
 
 #endif //__GENETICS_H
