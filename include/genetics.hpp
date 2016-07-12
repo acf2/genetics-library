@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <random>
 #include <cassert>
-
+#include <utility>
 //#include <iostream>
 
 /*
@@ -135,6 +135,7 @@ namespace Genetics {
 			// пока (генетический алгоритм ⇒ поколение < максимум поколений) и (необходимая приспособленность < достигнутой приспособленности)
 			// Выход в середине тела цикла
 			DNA crossbuffer;
+			size_t crossbuffer_fitness;
 			RandomFloatGenerator& generator = RandomFloatGenerator::get_instance();
 
 			for (;;) {
@@ -143,10 +144,11 @@ namespace Genetics {
 				//Скрещивание
 				for (size_t i = 0; i < active_parents; ++i) {
 					for (size_t j = (symmetric_crossover ? i+1 : 0); j < active_parents; ++j) {
-						crossbuffer = crossover(Parents[i], Parents[j]);
+						crossbuffer = std::move(crossover(Parents[i], Parents[j]));
 						if (generator.get_random_float() <= mutation_probability)
 							mutate(&crossbuffer);
-						Field.emplace(fitness(crossbuffer), crossbuffer);
+						crossbuffer_fitness = fitness(crossbuffer);
+						Field.emplace(crossbuffer_fitness, std::move(crossbuffer));
 					}
 				}
 
@@ -158,7 +160,7 @@ namespace Genetics {
 				
 				size_t parent_number = 0;
 				for (typename std::multimap<Fitness_t, DNA>::iterator iter = Field.begin(); parent_number < Parents.size() && iter != Field.end(); ++parent_number, ++iter) {
-					Parents[parent_number] = iter->second;
+					Parents[parent_number] = std::move(iter->second);
 				}
 				active_parents = parent_number;
 
@@ -170,7 +172,7 @@ namespace Genetics {
 				Field.begin(), 
 				Field.end(), 
 				result->begin(), 
-				[](std::pair<Fitness_t, DNA> p) -> DNA { return p.second; });
+				[](std::pair<Fitness_t, DNA> p) -> DNA { return std::move(p.second); });
 			return result;
 		}
 	};
