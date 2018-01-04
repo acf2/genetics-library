@@ -12,7 +12,6 @@
 #include <cassert>
 #include <utility>
 
-
 namespace Genetics {
 
 	// Достаточно синглтона Мэйерса
@@ -85,17 +84,17 @@ namespace Genetics {
 		}
 	};
 
+	const size_t unlimited = 0;
+
 	template<typename DNA, typename Fitness_t>
 	class World {
 	private:
-		std::function<Fitness_t(DNA const&)> fitness;
+		std::function<Fitness_t(std::vector<DNA> const&, size_t)> fitness;
 		std::function<DNA(DNA const&, DNA const&)> crossover;
 		bool symmetric_crossover;
 		std::function<void(DNA&)> mutate;
 
 	public:
-		static const size_t unlimited = 0;
-
 		friend void swap(World& one, World& another) {
 			using std::swap;
 			swap(one.fitness, another.fitness);
@@ -105,7 +104,7 @@ namespace Genetics {
 		}
 
 		World(
-			std::function<Fitness_t(DNA const&)> fitness,
+			std::function<Fitness_t(std::vector<DNA> const&, size_t)> fitness,
 			std::function<DNA(DNA const&, DNA const&)> crossover,
 			bool symmetric_crossover,
 			std::function<void(DNA&)> mutate
@@ -140,68 +139,89 @@ namespace Genetics {
 			// Значения больше 1 приравниваются к 1, меньше 0 приравниваются к 0
 			float mutation_probability = 0.05,
 			// Количество особей, что отбираются для порождения следующего поколения
-			// При нуле принимает значение количества особей в первом поколении
-			size_t parents_size = unlimited,
+			// При нуле - неограничено
+			size_t survivors = unlimited,
 			// На сколько поколений можно максимально ЕЩЁ продвинуться вперёд. Ноль - без ограничений
 			size_t max_generations = unlimited
 		) {
-			bool is_generation_based = max_generations != 0;
-			size_t active_parents;
-			if (parents_size == 0)
-				parents_size = generation0->size();
+			bool is_generation_based = max_generations != unlimited;
 
-			std::vector<DNA> Parents(parents_size);
-			active_parents = std::min(parents_size, generation0->size());
-			std::copy_n(generation0->begin(), active_parents, Parents.begin());
+			// field это базовый контейнер, с которым будет работать evolve
+			std::multimap<Fitness_t, DNA> field;
+			// newbies нужна для обновления field (см. ниже)
+			std::vector<DNA> newbies;
+			/*
+			 *	Из-за природы функции fitness (которая может зависеть и от текущей популяции), после
+			 *	получения всех особей некоторого поколения необходимо пересчитать очки приспособленности
+			 *	Для более-менее оптимального обращения с памятью при заметных размерах типа DNA и дороговизны вызова fitness
+			 *	будет использован следующий алгоритм:
+			 *		0. Имеется старое поле field
+			 *		1. Заполняется вектор vector<DNA> newbies с помощью кроссовера (c std::move, поэтому копирования нет)
+			 *		2. Все родители из field добавляются в newbies с помощью std::move
+			 *		3. field очищается clear
+			 *		4. Пересчёт
+			 *			4.1 Для каждого из newbies один раз вычисляется значение fitness
+			 *			4.2 Каждый из newbies заносится в новое field c помощью std::move вместе с его значением fitness
+			 *		5. Получено новое поле field
+			 *
+			 *	Функция update_field и будет выполнять этот алгоритм после заполнения вектора newbies.
+			 *	Она принимает на вход старое field и массив newbies, возвращает новое filed и опустошает newbies (с помощью clear)
+			 */
+			std::function<void()> update_field = [this, &field, &newbies]() -> void {
+				newbies.reserve(newbies.size() + field.size());
+				for (auto& elem : field) {
+					newbies.push_back(std::move(elem.second));
+				}
+				std::vector<Fitness_t> newbies_fitnesses;
+				newbies_fitnesses.reserve(newbies.size());
+				for (size_t i = 0; i < newbies.size(); ++i) {
+					newbies_fitnesses.push_back(std::move(fitness(newbies, i)));
+				}
 
-			std::multimap<Fitness_t, DNA> Field;
+				field.clear();
+				for (size_t i = 0; i < newbies.size(); ++i) {
+					field.emplace(std::move(newbies_fitnesses[i]), std::move(newbies[i]));
+				}
+				newbies.clear();
+			};
+
+			// Вот так это будет происходить
+			newbies = *generation0;
+			update_field();
+
 			size_t generation_number = 0;
-			Fitness_t achieved_fitness = fitness(Parents[0]);
-			for (size_t i = 1; i < active_parents; ++i)
-				if (fitness(Parents[i]) < achieved_fitness)
-					achieved_fitness = fitness(Parents[i]);
+			Fitness_t achieved_fitness = field.begin()->first;
 
 			// Цикл скрещивания
 			// пока (генетический алгоритм ⇒ поколение < максимум поколений) и (необходимая приспособленность < достигнутой приспособленности)
 			// Выход в середине тела цикла
-			DNA crossbuffer;
-			size_t crossbuffer_fitness;
 			RandomFloatGenerator& generator = RandomFloatGenerator::get_instance();
 
-			for (;;) {
-				Field.clear();
-
+			while ((!is_generation_based || generation_number < max_generations) && (required_fitness < achieved_fitness)) {
 				//Скрещивание
-				for (size_t i = 0; i < active_parents; ++i) {
-					for (size_t j = (symmetric_crossover ? i+1 : 0); j < active_parents; ++j) {
-						crossbuffer = std::move(crossover(Parents[i], Parents[j]));
+				for (auto iter1 = field.begin(); iter1 != field.end(); ++iter1) {
+					for (auto iter2 = (symmetric_crossover ? std::next(iter1) : field.begin()); iter2 != field.end(); ++iter2) {
+						newbies.push_back(std::move(crossover(iter1->second, iter2->second)));
 						if (generator.get_random_float() <= mutation_probability)
-							mutate(crossbuffer);
-						crossbuffer_fitness = fitness(crossbuffer);
-						Field.emplace(crossbuffer_fitness, std::move(crossbuffer));
+							mutate(newbies.back());
 					}
 				}
+				update_field();
 
-				achieved_fitness = Field.begin()->first; //Лучший
+				if (survivors != unlimited && field.size() > survivors)
+					field.erase(std::next(field.begin(), survivors), field.end());
+
+				achieved_fitness = field.begin()->first; //Лучший
 				++generation_number;
-
-				if ((is_generation_based && generation_number >= max_generations) || !(required_fitness < achieved_fitness))
-					break;
-				
-				size_t parent_number = 0;
-				for (typename std::multimap<Fitness_t, DNA>::iterator iter = Field.begin(); parent_number < Parents.size() && iter != Field.end(); ++parent_number, ++iter) {
-					Parents[parent_number] = std::move(iter->second);
-				}
-				active_parents = parent_number;
-
 			}
+
 			Population<DNA> result(
-				std::vector<DNA>(Field.size()), 
+				std::vector<DNA>(field.size()),
 				generation0.generation() + generation_number);
 			std::transform(
-				Field.begin(), 
-				Field.end(), 
-				result->begin(), 
+				field.begin(),
+				field.end(),
+				result->begin(),
 				[](std::pair<Fitness_t, DNA> p) -> DNA { return std::move(p.second); });
 			return result;
 		}
