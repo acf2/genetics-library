@@ -96,7 +96,7 @@ namespace Genetics {
 		std::function<Fitness_t(DNA const&)> fitness;
 		std::function<DNA(DNA const&, DNA const&)> crossover;
 		bool symmetric_crossover;
-		std::function<void(DNA*)> mutate;
+		std::function<void(DNA&)> mutate;
 
 	public:
 		static const size_t unlimited = 0;
@@ -113,7 +113,7 @@ namespace Genetics {
 			std::function<Fitness_t(DNA const&)> fitness,
 			std::function<DNA(DNA const&, DNA const&)> crossover,
 			bool symmetric_crossover,
-			std::function<void(DNA*)> mutate
+			std::function<void(DNA&)> mutate
 		) : fitness(fitness),
 			crossover(crossover),
 			symmetric_crossover(symmetric_crossover),
@@ -186,7 +186,7 @@ namespace Genetics {
 					for (size_t j = (symmetric_crossover ? i+1 : 0); j < active_parents; ++j) {
 						crossbuffer = std::move(crossover(Parents[i], Parents[j]));
 						if (generator.get_random_float() <= mutation_probability)
-							mutate(&crossbuffer);
+							mutate(crossbuffer);
 						crossbuffer_fitness = fitness(crossbuffer);
 						Field.emplace(crossbuffer_fitness, std::move(crossbuffer));
 					}
