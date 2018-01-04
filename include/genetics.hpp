@@ -71,11 +71,6 @@ namespace Genetics {
 			return *this;
 		}
 
-		Population& operator=(Population&& another) {
-			swap(*this, another);
-			return *this;
-		}
-
 		// Не лучшая идея, но мне нравится считать разыменование популяции вектором из особей
 		std::vector<DNA>& operator*() {
 			return specimens;
@@ -131,11 +126,6 @@ namespace Genetics {
 		~World() = default;
 
 		World& operator=(World another) {
-			swap(*this, another);
-			return *this;
-		}
-
-		World& operator=(World&& another) {
 			swap(*this, another);
 			return *this;
 		}
