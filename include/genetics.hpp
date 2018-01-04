@@ -53,14 +53,27 @@ namespace Genetics {
 		size_t generation_number;
 
 	public:
+		friend void swap(Population& one, Population& another) {
+			using std::swap;
+			swap(one.specimens, another.specimens);
+			swap(one.generation_number, another.generation_number);
+		}
 		Population() : generation_number(0) {}
-		Population(Population const& another) : specimens(another.specimens), generation_number(another.generation_number) { }
 		Population(std::vector<DNA> specimens, size_t generation_number = 0) : specimens(specimens), generation_number(generation_number) {}
+		Population(Population const& another) : specimens(another.specimens), generation_number(another.generation_number) { }
+		Population(Population&& another) {
+			swap(*this, another);
+		}
 		~Population() { }
 
-		Population& operator=(Population const& another) {
-			specimens = another.specimens;
-			generation_number = another.generation_number;
+		Population& operator=(Population another) {
+			swap(*this, another);
+			return *this;
+		}
+
+		Population& operator=(Population&& another) {
+			swap(*this, another);
+			return *this;
 		}
 
 		// Не лучшая идея, но мне нравится считать разыменование популяции вектором из особей
@@ -72,7 +85,7 @@ namespace Genetics {
 			return &specimens;
 		}
 
-		size_t get_generation_number() const {
+		size_t generation() const {
 			return generation_number;
 		}
 	};
@@ -80,23 +93,23 @@ namespace Genetics {
 	template<typename DNA, typename Fitness_t>
 	class World {
 	private:
+		std::function<Fitness_t(DNA const&)> fitness;
 		std::function<DNA(DNA const&, DNA const&)> crossover;
 		bool symmetric_crossover;
 		std::function<void(DNA*)> mutate;
-		std::function<Fitness_t(DNA const&)> fitness;
 
 	public:
 		static const size_t unlimited = 0;
 
 		World(
-			std::function<DNA(DNA const&, DNA const&)> crossover,
-			std::function<void(DNA*)> mutate,
 			std::function<Fitness_t(DNA const&)> fitness,
-			bool symmetric_crossover = 1
-		) : crossover(crossover),
-			mutate(mutate),
-			fitness(fitness),
-			symmetric_crossover(symmetric_crossover) { }
+			std::function<DNA(DNA const&, DNA const&)> crossover,
+			bool symmetric_crossover,
+			std::function<void(DNA*)> mutate
+		) : fitness(fitness),
+			crossover(crossover),
+			symmetric_crossover(symmetric_crossover),
+			mutate(mutate) { }
 		~World() = default;
 
 		Population<DNA> evolve(
@@ -166,7 +179,7 @@ namespace Genetics {
 			}
 			Population<DNA> result(
 				std::vector<DNA>(Field.size()), 
-				generation0.get_generation_number() + generation_number);
+				generation0.generation() + generation_number);
 			std::transform(
 				Field.begin(), 
 				Field.end(), 
