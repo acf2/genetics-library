@@ -142,7 +142,9 @@ namespace Genetics {
 			// При нуле - неограничено
 			size_t survivors = unlimited,
 			// На сколько поколений можно максимально ЕЩЁ продвинуться вперёд. Ноль - без ограничений
-			size_t max_generations = unlimited
+			size_t max_generations = unlimited,
+			// Через сколько поколений отделять выживших от мертвецов
+			size_t death_rate = 1
 		) {
 			bool is_generation_based = max_generations != unlimited;
 
@@ -208,7 +210,7 @@ namespace Genetics {
 				}
 				update_field();
 
-				if (survivors != unlimited && field.size() > survivors)
+				if (survivors != unlimited && field.size() > survivors && generation_number % death_rate == 0)
 					field.erase(std::next(field.begin(), survivors), field.end());
 
 				achieved_fitness = field.begin()->first; //Лучший
