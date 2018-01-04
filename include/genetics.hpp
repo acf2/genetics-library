@@ -101,6 +101,14 @@ namespace Genetics {
 	public:
 		static const size_t unlimited = 0;
 
+		friend void swap(World& one, World& another) {
+			using std::swap;
+			swap(one.fitness, another.fitness);
+			swap(one.crossover, another.crossover);
+			swap(one.symmetric_crossover, another.symmetric_crossover);
+			swap(one.mutate, another.mutate);
+		}
+
 		World(
 			std::function<Fitness_t(DNA const&)> fitness,
 			std::function<DNA(DNA const&, DNA const&)> crossover,
@@ -110,7 +118,27 @@ namespace Genetics {
 			crossover(crossover),
 			symmetric_crossover(symmetric_crossover),
 			mutate(mutate) { }
+
+		World(World const& another)
+		  : fitness(another.fitness),
+			crossover(another.crossover),
+			symmetric_crossover(another.symmetric_crossover),
+			mutate(another.mutate) { }
+
+		World(World&& another) {
+			swap(*this, another);
+		}
 		~World() = default;
+
+		World& operator=(World another) {
+			swap(*this, another);
+			return *this;
+		}
+
+		World& operator=(World&& another) {
+			swap(*this, another);
+			return *this;
+		}
 
 		Population<DNA> evolve(
 			// Первые родители
