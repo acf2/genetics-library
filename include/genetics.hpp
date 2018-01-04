@@ -4,24 +4,21 @@
 #include <cstdlib>
 #include <cstddef>
 #include <vector>
-//#include <string>
+
 #include <map>
 #include <functional>
 #include <algorithm>
 #include <random>
 #include <cassert>
 #include <utility>
-//#include <iostream>
 
-/*
- *	Простейшая, наивная реализация генетического алгоритма на шаблоне.
- *	Перед использованием надо инициализировать ГПСЧ.
- */
 
 namespace Genetics {
 
 	// Достаточно синглтона Мэйерса
 	// Когда буду делать более навороченную штуку, можно будет подумать и о многопоточном
+	// ...
+	// ... он и так многопоточный?..
 	class RandomFloatGenerator {
 	private:
 		std::mt19937 engine;
@@ -58,7 +55,7 @@ namespace Genetics {
 	public:
 		Population() : generation_number(0) {}
 		Population(Population const& another) : specimens(another.specimens), generation_number(another.generation_number) { }
-		Population(std::vector<DNA> specimens, size_t generation_number) : specimens(specimens), generation_number(generation_number) {}
+		Population(std::vector<DNA> specimens, size_t generation_number = 0) : specimens(specimens), generation_number(generation_number) {}
 		~Population() { }
 
 		Population& operator=(Population const& another) {
@@ -89,6 +86,8 @@ namespace Genetics {
 		std::function<Fitness_t(DNA const&)> fitness;
 
 	public:
+		static const size_t unlimited = 0;
+
 		World(
 			std::function<DNA(DNA const&, DNA const&)> crossover,
 			std::function<void(DNA*)> mutate,
@@ -101,19 +100,19 @@ namespace Genetics {
 		~World() = default;
 
 		Population<DNA> evolve(
-			// Предтечи
+			// Первые родители
 			Population<DNA> generation0,
 			// При каком уровне приспособленности остановить выполнение
 			// Ноль, или эквивалентный ему уровень - вплоть до идеального представителя вида
 			Fitness_t required_fitness,
-			// Количество особей, что отбираются для порождения следующего поколения
-			// При нуле принимает значение количества особей в первом поколении
-			size_t parents_size = 0,
 			// Вероятность возникновения мутации (0 <= mutation_probability <= 1)
 			// Значения больше 1 приравниваются к 1, меньше 0 приравниваются к 0
 			float mutation_probability = 0.05,
+			// Количество особей, что отбираются для порождения следующего поколения
+			// При нуле принимает значение количества особей в первом поколении
+			size_t parents_size = unlimited,
 			// На сколько поколений можно максимально ЕЩЁ продвинуться вперёд. Ноль - без ограничений
-			size_t max_generations = 0
+			size_t max_generations = unlimited
 		) {
 			bool is_generation_based = max_generations != 0;
 			size_t active_parents;
