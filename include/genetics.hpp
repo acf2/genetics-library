@@ -93,6 +93,7 @@ namespace Genetics {
 		std::function<DNA(DNA const&, DNA const&)> crossover;
 		bool symmetric_crossover;
 		std::function<void(DNA&)> mutate;
+		std::function<double(DNA const&, DNA const&)> similarity_to;
 
 	public:
 		friend void swap(World& one, World& another) {
@@ -101,23 +102,27 @@ namespace Genetics {
 			swap(one.crossover, another.crossover);
 			swap(one.symmetric_crossover, another.symmetric_crossover);
 			swap(one.mutate, another.mutate);
+			swap(one.similarity_to, another.similarity_to);
 		}
 
 		World(
 			std::function<Fitness_t(std::vector<DNA> const&, size_t)> fitness,
 			std::function<DNA(DNA const&, DNA const&)> crossover,
 			bool symmetric_crossover,
-			std::function<void(DNA&)> mutate
+			std::function<void(DNA&)> mutate,
+			std::function<double(DNA const&, DNA const&)> similarity_to
 		) : fitness(fitness),
 			crossover(crossover),
 			symmetric_crossover(symmetric_crossover),
-			mutate(mutate) { }
+			mutate(mutate),
+		    similarity_to(similarity_to) { }
 
 		World(World const& another)
 		  : fitness(another.fitness),
 			crossover(another.crossover),
 			symmetric_crossover(another.symmetric_crossover),
-			mutate(another.mutate) { }
+			mutate(another.mutate),
+		    similarity_to(another.similarity_to) { }
 
 		World(World&& another) {
 			swap(*this, another);
@@ -132,9 +137,10 @@ namespace Genetics {
 		Population<DNA> evolve(
 			// Первые родители
 			Population<DNA> generation0,
-			// При каком уровне приспособленности остановить выполнение
+			// Предикат от приспособленности
+			// Сообщает, когда остановить выполнение
 			// Ноль, или эквивалентный ему уровень - вплоть до идеального представителя вида
-			Fitness_t required_fitness,
+			std::function<bool(Fitness_t)> good_enough,
 			// Вероятность возникновения мутации (0 <= mutation_probability <= 1)
 			// Значения больше 1 приравниваются к 1, меньше 0 приравниваются к 0
 			float mutation_probability = 0.05,
@@ -199,7 +205,7 @@ namespace Genetics {
 			// Выход в середине тела цикла
 			RandomFloatGenerator& generator = RandomFloatGenerator::get_instance();
 
-			while ((!is_generation_based || generation_number < max_generations) && (required_fitness < achieved_fitness)) {
+			while ((!is_generation_based || generation_number < max_generations) && !good_enough(achieved_fitness)) {
 				//Скрещивание
 				for (auto iter1 = field.begin(); iter1 != field.end(); ++iter1) {
 					for (auto iter2 = (symmetric_crossover ? std::next(iter1) : field.begin()); iter2 != field.end(); ++iter2) {
@@ -210,8 +216,43 @@ namespace Genetics {
 				}
 				update_field();
 
-				if (survivors != unlimited && field.size() > survivors && generation_number % death_rate == 0)
-					field.erase(std::next(field.begin(), survivors), field.end());
+				// Выжившие будут отобраны следующим образом:
+				// сначала самый приспособленный
+				// потом наиболее не похожий на него
+				// затем наиболее не похожий на обоих предыдущих
+				// после того - наиболее не похожий на всех предыдущих
+				// и так далее...
+				// Так уменьшается вероятность попасть в локальный минимум
+				if (survivors != unlimited && field.size() > survivors && generation_number % death_rate == 0) {
+					std::multimap<Fitness_t, DNA> old_field = std::move(field);
+					field.clear();
+
+					// От всех разностей берётся среднее арифметическое
+					// хотя по-хорошему надо взвешенное среднее арифметическое брать (???)
+					auto similarity_to_field = [this, &field](DNA const& another) -> double {
+						double result = 0;
+						for (auto& elem : field) {
+							result += similarity_to(elem.second, another);
+						}
+						return (result / field.size());
+					};
+
+					auto newcomer = old_field.begin();
+					double lowest_similarity = .0, current_similarity;
+					for (size_t i = 0; i < survivors; ++i) {
+						field.insert(*newcomer);
+						old_field.erase(newcomer);
+
+						lowest_similarity = 2;
+						for (auto iter = old_field.begin(); iter != old_field.end(); ++iter) {
+							current_similarity = similarity_to_field(iter->second);
+							if (current_similarity < lowest_similarity) {
+								lowest_similarity = current_similarity;
+								newcomer = iter;
+							}
+						}
+					}
+				}
 
 				achieved_fitness = field.begin()->first; //Лучший
 				++generation_number;
