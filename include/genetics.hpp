@@ -54,6 +54,7 @@ namespace Genetics {
 	public:
 		friend void swap(Population& one, Population& another) {
 			using std::swap;
+
 			swap(one.specimens, another.specimens);
 			swap(one.generation_number, another.generation_number);
 		}
@@ -87,188 +88,138 @@ namespace Genetics {
 	const size_t unlimited = 0;
 
 	template<typename DNA, typename Fitness_t>
-	class World {
-	private:
-		std::function<Fitness_t(std::vector<DNA> const&, size_t)> fitness;
+	struct WorldSettings {
+		std::function<std::vector<Fitness_t>(std::vector<DNA> const&)> fitness;
 		std::function<DNA(DNA const&, DNA const&)> crossover;
-		bool symmetric_crossover;
-		std::function<void(DNA&)> mutate;
-		std::function<double(DNA const&, DNA const&)> similarity_to;
+		bool is_crossover_symmetric = 1;
+		std::function<DNA(DNA&&)> mutate;
+		std::function<bool(DNA const&, DNA const&)> is_similar_to = [](DNA const& one, DNA const& another) -> bool { return 0; };
 
-	public:
-		friend void swap(World& one, World& another) {
-			using std::swap;
-			swap(one.fitness, another.fitness);
-			swap(one.crossover, another.crossover);
-			swap(one.symmetric_crossover, another.symmetric_crossover);
-			swap(one.mutate, another.mutate);
-			swap(one.similarity_to, another.similarity_to);
-		}
+		// 0 <= mutation_probability <= 1
+		// if > 1 then 1; if < 0 then 0
+		float mutation_probability;
+		// Number of specimens selected from each generation.
+		// (zero or "unlimited" for unlimited version, HIGHLY not recommended)
+		size_t survivors;
+		// Selection will be performed every <death_rate> generations.
+		size_t death_rate = 1;
+	};
 
-		World(
-			std::function<Fitness_t(std::vector<DNA> const&, size_t)> fitness,
-			std::function<DNA(DNA const&, DNA const&)> crossover,
-			bool symmetric_crossover,
-			std::function<void(DNA&)> mutate,
-			std::function<double(DNA const&, DNA const&)> similarity_to
-		) : fitness(fitness),
-			crossover(crossover),
-			symmetric_crossover(symmetric_crossover),
-			mutate(mutate),
-		    similarity_to(similarity_to) { }
+	template<typename DNA, typename Fitness_t>
+	Population<DNA> evolve(
+		WorldSettings<DNA, Fitness_t> settings,
+		Population<DNA> generation0,
+		std::function<bool(Fitness_t)> good_enough, // Check for target fitness
+		size_t max_generations = unlimited
+	) {
+		bool is_generation_based = max_generations != unlimited;
+		decltype(settings.mutation_probability) mutation_probability = std::max(0.f, std::min(1.f, settings.mutation_probability));
 
-		World(World const& another)
-		  : fitness(another.fitness),
-			crossover(another.crossover),
-			symmetric_crossover(another.symmetric_crossover),
-			mutate(another.mutate),
-		    similarity_to(another.similarity_to) { }
+		// field это базовый контейнер, с которым будет работать evolve
+		std::multimap<Fitness_t, DNA> field;
+		// newbies нужна для обновления field (см. ниже)
+		std::vector<DNA> newbies;
+		/*
+		 *	Из-за природы функции fitness (которая может зависеть и от текущей популяции), после
+		 *	получения всех особей некоторого поколения необходимо пересчитать очки приспособленности
+		 *	Для более-менее оптимального обращения с памятью при заметных размерах типа DNA и дороговизны вызова fitness
+		 *	будет использован следующий алгоритм:
+		 *		0. Имеется старое поле field
+		 *		1. Заполняется вектор vector<DNA> newbies с помощью кроссовера (c std::move, поэтому копирования нет)
+		 *		2. Все родители из field добавляются в newbies с помощью std::move
+		 *		3. field очищается clear
+		 *		4. Пересчёт
+		 *			4.1 Для всех newbies одновременно вычисляется значение fitness
+		 *			    (поэтому его производительность зависит от пользовательского коллбэка)
+		 *			4.2 Каждый из newbies заносится в новое field c помощью std::move вместе с его значением fitness
+		 *		5. Получено новое поле field
+		 *
+		 *	Функция update_field и будет выполнять этот алгоритм после заполнения вектора newbies.
+		 *	Она принимает на вход старое field и массив newbies, возвращает новое filed и опустошает newbies (с помощью clear)
+		 */
+		std::function<void()> update_field = [&settings, &field, &newbies]() -> void {
+			newbies.reserve(newbies.size() + field.size());
+			for (auto&& elem : field) {
+				newbies.push_back(std::move(elem.second));
+			}
+			std::vector<Fitness_t> newbies_fitnesses = settings.fitness(newbies);
 
-		World(World&& another) {
-			swap(*this, another);
-		}
-		~World() = default;
+			field.clear();
+			for (size_t i = 0; i < newbies.size(); ++i) {
+				field.emplace(std::move(newbies_fitnesses[i]), std::move(newbies[i]));
+			}
+			newbies.clear();
+		};
 
-		World& operator=(World another) {
-			swap(*this, another);
-			return *this;
-		}
+		// Вот так это будет происходить
+		newbies = *generation0;
+		update_field();
 
-		Population<DNA> evolve(
-			// Первые родители
-			Population<DNA> generation0,
-			// Предикат от приспособленности
-			// Сообщает, когда остановить выполнение
-			// Ноль, или эквивалентный ему уровень - вплоть до идеального представителя вида
-			std::function<bool(Fitness_t)> good_enough,
-			// Вероятность возникновения мутации (0 <= mutation_probability <= 1)
-			// Значения больше 1 приравниваются к 1, меньше 0 приравниваются к 0
-			float mutation_probability = 0.05,
-			// Количество особей, что отбираются для порождения следующего поколения
-			// При нуле - неограничено
-			size_t survivors = unlimited,
-			// На сколько поколений можно максимально ЕЩЁ продвинуться вперёд. Ноль - без ограничений
-			size_t max_generations = unlimited,
-			// Через сколько поколений отделять выживших от мертвецов
-			size_t death_rate = 1
-		) {
-			bool is_generation_based = max_generations != unlimited;
+		size_t generation_number = generation0.generation();
+		size_t end_generation = generation_number + max_generations;
+		Fitness_t achieved_fitness = field.begin()->first;
 
-			// field это базовый контейнер, с которым будет работать evolve
-			std::multimap<Fitness_t, DNA> field;
-			// newbies нужна для обновления field (см. ниже)
-			std::vector<DNA> newbies;
-			/*
-			 *	Из-за природы функции fitness (которая может зависеть и от текущей популяции), после
-			 *	получения всех особей некоторого поколения необходимо пересчитать очки приспособленности
-			 *	Для более-менее оптимального обращения с памятью при заметных размерах типа DNA и дороговизны вызова fitness
-			 *	будет использован следующий алгоритм:
-			 *		0. Имеется старое поле field
-			 *		1. Заполняется вектор vector<DNA> newbies с помощью кроссовера (c std::move, поэтому копирования нет)
-			 *		2. Все родители из field добавляются в newbies с помощью std::move
-			 *		3. field очищается clear
-			 *		4. Пересчёт
-			 *			4.1 Для каждого из newbies один раз вычисляется значение fitness
-			 *			4.2 Каждый из newbies заносится в новое field c помощью std::move вместе с его значением fitness
-			 *		5. Получено новое поле field
-			 *
-			 *	Функция update_field и будет выполнять этот алгоритм после заполнения вектора newbies.
-			 *	Она принимает на вход старое field и массив newbies, возвращает новое filed и опустошает newbies (с помощью clear)
-			 */
-			std::function<void()> update_field = [this, &field, &newbies]() -> void {
-				newbies.reserve(newbies.size() + field.size());
-				for (auto& elem : field) {
-					newbies.push_back(std::move(elem.second));
+		// Цикл скрещивания
+		// пока (генетический алгоритм ⇒ поколение < максимум поколений) и (необходимая приспособленность < достигнутой приспособленности)
+		// Выход в середине тела цикла
+		RandomFloatGenerator& generator = RandomFloatGenerator::get_instance();
+
+		while ((!is_generation_based || generation_number < end_generation) && !good_enough(achieved_fitness)) {
+			// Crossover
+			for (auto first_specimen = field.begin(); first_specimen != field.end(); ++first_specimen) {
+				for (auto second_specimen = (settings.is_crossover_symmetric ? std::next(first_specimen) : field.begin()); second_specimen != field.end(); ++second_specimen) {
+					newbies.emplace_back(std::move(settings.crossover(first_specimen->second, second_specimen->second)));
+					if (generator.get_random_float() <= mutation_probability)
+						newbies.back() = settings.mutate(std::move(newbies.back()));
 				}
-				std::vector<Fitness_t> newbies_fitnesses;
-				newbies_fitnesses.reserve(newbies.size());
-				for (size_t i = 0; i < newbies.size(); ++i) {
-					newbies_fitnesses.push_back(std::move(fitness(newbies, i)));
-				}
-
-				field.clear();
-				for (size_t i = 0; i < newbies.size(); ++i) {
-					field.emplace(std::move(newbies_fitnesses[i]), std::move(newbies[i]));
-				}
-				newbies.clear();
-			};
-
-			// Вот так это будет происходить
-			newbies = *generation0;
+			}
 			update_field();
 
-			size_t generation_number = 0;
-			Fitness_t achieved_fitness = field.begin()->first;
+			++generation_number;
 
-			// Цикл скрещивания
-			// пока (генетический алгоритм ⇒ поколение < максимум поколений) и (необходимая приспособленность < достигнутой приспособленности)
-			// Выход в середине тела цикла
-			RandomFloatGenerator& generator = RandomFloatGenerator::get_instance();
+			// Selection will be done in the following way:
+			//   1) Select the most fit first and pull it from the pool
+			//   2) Discard every specimen that "is similar to" previously selected
+			//   3) Go to 1
+			if (settings.survivors != unlimited && field.size() > settings.survivors && generation_number % settings.death_rate == 0) {
+				std::multimap<Fitness_t, DNA> old_field = std::move(field);
+				field.clear();
 
-			while ((!is_generation_based || generation_number < max_generations) && !good_enough(achieved_fitness)) {
-				//Скрещивание
-				for (auto iter1 = field.begin(); iter1 != field.end(); ++iter1) {
-					for (auto iter2 = (symmetric_crossover ? std::next(iter1) : field.begin()); iter2 != field.end(); ++iter2) {
-						newbies.push_back(std::move(crossover(iter1->second, iter2->second)));
-						if (generator.get_random_float() <= mutation_probability)
-							mutate(newbies.back());
-					}
-				}
-				update_field();
+				size_t i;
+				for (i = 0; i < settings.survivors && !old_field.empty(); ++i) {
+					auto&& newcomer = *std::begin(old_field);
 
-				// Выжившие будут отобраны следующим образом:
-				// сначала самый приспособленный
-				// потом наиболее не похожий на него
-				// затем наиболее не похожий на обоих предыдущих
-				// после того - наиболее не похожий на всех предыдущих
-				// и так далее...
-				// Так уменьшается вероятность попасть в локальный минимум
-				if (survivors != unlimited && field.size() > survivors && generation_number % death_rate == 0) {
-					std::multimap<Fitness_t, DNA> old_field = std::move(field);
-					field.clear();
+					field.insert(newcomer);
 
-					// От всех разностей берётся среднее арифметическое
-					// хотя по-хорошему надо взвешенное среднее арифметическое брать (???)
-					auto similarity_to_field = [this, &field](DNA const& another) -> double {
-						double result = 0;
-						for (auto& elem : field) {
-							result += similarity_to(elem.second, another);
-						}
-						return (result / field.size());
-					};
-
-					auto newcomer = old_field.begin();
-					double lowest_similarity = .0, current_similarity;
-					for (size_t i = 0; i < survivors; ++i) {
-						field.insert(*newcomer);
-						old_field.erase(newcomer);
-
-						lowest_similarity = 2;
-						for (auto iter = old_field.begin(); iter != old_field.end(); ++iter) {
-							current_similarity = similarity_to_field(iter->second);
-							if (current_similarity < lowest_similarity) {
-								lowest_similarity = current_similarity;
-								newcomer = iter;
-							}
+					// XXX: remove_if does not work with maps!
+					for (auto iter = std::begin(old_field); iter != std::end(old_field);) {
+						if (settings.is_similar_to(iter->second, newcomer.second)) {
+							iter = old_field.erase(iter);
+						} else {
+							++iter;
 						}
 					}
 				}
 
-				achieved_fitness = field.begin()->first; //Лучший
-				++generation_number;
+				// If there is not enough survivors, just clone the best one
+				for (; i < settings.survivors; ++i) {
+					assert(!field.empty());
+					field.insert(*std::begin(field));
+				}
 			}
 
-			Population<DNA> result(
-				std::vector<DNA>(field.size()),
-				generation0.generation() + generation_number);
-			std::transform(
-				field.begin(),
-				field.end(),
-				result->begin(),
-				[](std::pair<Fitness_t, DNA> p) -> DNA { return std::move(p.second); });
-			return result;
+			achieved_fitness = field.begin()->first;
 		}
-	};
+
+		Population<DNA> result(
+			std::vector<DNA>(field.size()),
+			generation_number);
+		std::transform(field.begin(), field.end(), result->begin(),
+					   [](std::pair<Fitness_t, DNA> p) -> DNA {
+						   return std::move(p.second);
+					   });
+		return result;
+	}
 }
 
 #endif //__GENETICS_H

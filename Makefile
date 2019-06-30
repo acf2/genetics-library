@@ -5,7 +5,9 @@ BINDIR=bin
 TESTSRC := $(shell ls $(TESTDIR)/*.cpp)
 TESTEXEC := $(patsubst $(TESTDIR)/%.cpp,$(BINDIR)/%,$(TESTSRC))
 
-CPPFLAGS=-std=c++11 -DDEBUG -g -w -pedantic -Wall
+#CPPFLAGS=-std=c++14 -DDEBUG -g -w -pedantic -Wall
+CPPFLAGS=-std=c++14 -DNDEBUG -O2
+
 INC=-I./include
 
 all: test
