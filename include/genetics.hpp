@@ -12,7 +12,7 @@
 #include <cassert>
 #include <utility>
 
-namespace Genetics {
+namespace genetics {
 
 	// Достаточно синглтона Мэйерса
 	// Когда буду делать более навороченную штуку, можно будет подумать и о многопоточном
