@@ -1,22 +1,23 @@
-LIBNAME=gntc
 TESTDIR=test
 BINDIR=bin
 
 TESTSRC := $(shell ls $(TESTDIR)/*.cpp)
 TESTEXEC := $(patsubst $(TESTDIR)/%.cpp,$(BINDIR)/%,$(TESTSRC))
 
-#CPPFLAGS=-std=c++14 -DDEBUG -g -w -pedantic -Wall
-CPPFLAGS=-std=c++14 -DNDEBUG -O2
+CPPFLAGS=-std=c++20
+DEBUG=-DDEBUG -g -w -pedantic -Wall
+CPPFLAGS=-DNDEBUG -O2
 
 INC=-I./include
 
+all: CPPFLAGS := $(CPPFLAGS) $(RELEASE)
 all: test
+
+debug: CPPFLAGS := $(CPPFLAGS) $(DEBUG)
+debug: test
 
 clean:
 	-rm -r $(BINDIR)
-
-install:
-	cp include/* /home/acf2/0000/gear/NSL/include/
 
 test: $(TESTEXEC)
 
