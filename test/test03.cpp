@@ -172,8 +172,8 @@ public:
 		auto& another = polynomials[parent2];
 
 		// Generate new poly
-		size_t first_joint = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, one.size()),
-			   second_joint = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, another.size());
+		size_t first_joint = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, one.size()),
+			   second_joint = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, another.size());
 		polynomial_t new_polynomial(first_joint + another.size() - second_joint);
 		std::copy_n(std::begin(one), first_joint, std::begin(new_polynomial));
 		std::copy_n(std::next(std::begin(another), second_joint), another.size() - second_joint, std::next(std::begin(new_polynomial), first_joint));
@@ -195,47 +195,47 @@ public:
 		double constexpr mutation_probability = 0.5;
 
 		// Note: yep, with similarity > 0.5, there always will be a mutation
-		if (genetics::RandomFloatGenerator::get_instance().get_random_float<double>(0.0, 1.0) > mutation_probability + similarity
+		if (genetics::RandomGenerator::get_instance().get_random_float<double>(0.0, 1.0) > mutation_probability + similarity
 			|| new_polynomial.size() == 0) {
 			return new_polynomial;
 		}
 
 		// There can be 6 types of mutation: changing coefficient value, (inserting/losing) a coefficient, cutting (head/tail) and "knockoff"
-		std::size_t choice = genetics::RandomFloatGenerator::get_instance().get_random_int<std::size_t>(0, 5);
+		std::size_t choice = genetics::RandomGenerator::get_instance().get_random_int<std::size_t>(0, 5);
 		switch (choice) {
 		case 0: { // change coefficient value
-			domain_t update = genetics::RandomFloatGenerator::get_instance().get_random_float<domain_t>(-3.f, 3.f);
+			domain_t update = genetics::RandomGenerator::get_instance().get_random_float<domain_t>(-3.f, 3.f);
 			for (auto& coefficient : new_polynomial) {
 				coefficient *= update;
 			}
 			break;
 		}
 		case 1: { // insert new coefficients/monomials
-			size_t how_much = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() / 4);
+			size_t how_much = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() / 4);
 			size_t cell;
 			for (size_t i = 0; i < how_much; ++i) {
-				cell = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() - 1);
+				cell = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() - 1);
 				new_polynomial.insert(std::next(std::begin(new_polynomial), cell),
-				                      genetics::RandomFloatGenerator::get_instance().get_random_float<domain_t>(-1.f, 1.f));
+				                      genetics::RandomGenerator::get_instance().get_random_float<domain_t>(-1.f, 1.f));
 			}
 			break;
 		}
 		case 2: { // remove/zero coefficients/monimials
-			size_t how_much = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() / 4);
+			size_t how_much = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() / 4);
 			size_t cell;
 			for (size_t i = 0; i < how_much; ++i) {
-				cell = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size()-1);
+				cell = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size()-1);
 				new_polynomial[cell] = 0.f;
 			}
 			break;
 		}
 		case 3: { // cut poly head
-			size_t cell = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() - 1);
+			size_t cell = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() - 1);
 			new_polynomial.erase(std::begin(new_polynomial), std::next(std::begin(new_polynomial), cell));
 			break;
 		}
 		case 4: { // cut poly tail
-			size_t cell = genetics::RandomFloatGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() - 1);
+			size_t cell = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, new_polynomial.size() - 1);
 			new_polynomial.erase(std::next(std::begin(new_polynomial), cell + 1), std::end(new_polynomial));
 			break;
 		}
@@ -296,9 +296,9 @@ int main() {
 	std::vector<polynomial_t> initial_polys;
 	for (size_t i = 0; i < survivors; ++i) {
 		polynomial_t pbuffer;
-		std::size_t const guessed_length = genetics::RandomFloatGenerator::get_instance().get_random_int<std::size_t>(0, 10);
+		std::size_t const guessed_length = genetics::RandomGenerator::get_instance().get_random_int<std::size_t>(0, 10);
 		for (size_t j = 0; j < guessed_length; ++j) {
-			pbuffer.push_back(genetics::RandomFloatGenerator::get_instance().get_random_float<domain_t>(-10.f, 10.f));
+			pbuffer.push_back(genetics::RandomGenerator::get_instance().get_random_float<domain_t>(-10.f, 10.f));
 		}
 		initial_polys.push_back(std::move(pbuffer));
 	}

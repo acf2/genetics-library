@@ -35,8 +35,8 @@ public:
 		gene_t new_specimen = (specimens[parent1] + specimens[parent2]) / 2;
 
 		// Mutation
-		if (genetics::RandomFloatGenerator::get_instance().get_random_float<float>(0.f, 1.f) < 0.3f) {
-			if (genetics::RandomFloatGenerator::get_instance().get_random_int<int>(0, 1)) {
+		if (genetics::RandomGenerator::get_instance().get_random_float<float>(0.f, 1.f) < 0.3f) {
+			if (genetics::RandomGenerator::get_instance().get_random_int<int>(0, 1)) {
 				--new_specimen;
 			} else {
 				++new_specimen;
@@ -57,10 +57,8 @@ public:
 };
 
 int main(int argc, char const *argv[]) {
-	//Genetics::WorldSettings<gene, size_t> settings;
 	genetics::Environment<gene_t, cost_t> env(std::make_shared<Fitness>(), std::make_shared<Crossover>(), std::make_shared<Selection>());
 
-	//Genetics::Population<gene> Z({1, 888, 42, 0xdeadcafe});
 	auto first_gen = genetics::new_generation<gene_t>({1, 888, 42, 0xDEADCAFE});
 
 	auto result = env.evolve(first_gen);

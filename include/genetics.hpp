@@ -48,21 +48,21 @@ void apply_permutation_in_place(std::vector<T>& vec, std::vector<std::size_t> pe
 }
 
 
-class RandomFloatGenerator {
+class RandomGenerator {
 private:
 	std::mt19937 engine;
 	std::uniform_real_distribution<float> distribution;
 
-	RandomFloatGenerator() : distribution(0.0, 1.0) {
+	RandomGenerator() : distribution(0.0, 1.0) {
 		std::random_device rd;
 		engine.seed(rd());
 	}
-	RandomFloatGenerator(RandomFloatGenerator const&) = delete;
-	RandomFloatGenerator& operator=(RandomFloatGenerator&) = delete;
-	~RandomFloatGenerator() { }
+	RandomGenerator(RandomGenerator const&) = delete;
+	RandomGenerator& operator=(RandomGenerator&) = delete;
+	~RandomGenerator() { }
 public:
-	static RandomFloatGenerator& get_instance() {
-		static RandomFloatGenerator instance;
+	static RandomGenerator& get_instance() {
+		static RandomGenerator instance;
 		return instance;
 	}
 
@@ -77,20 +77,9 @@ public:
 	}
 };
 
-/*
- *	NOTE: Should be relatively easy to add new optional fields.
- *	      Also, this kind of structure should not restrict custom fields.
- *	      Why not to use classes? Because data-oriented design ofc!
- */
-enum {
-	GENOME_ID = 0,
-	AGE_ID = 1,
-	TRAITS_TOTAL
-};
-
 template <typename Genome>
 using Generation = std::tuple<std::vector<Genome>,
-							  std::optional<std::vector<std::size_t>>>; // this is ages of specimens, man. Don't forget.
+                              std::optional<std::vector<std::size_t>>>; // this is ages of specimens, man. Don't forget.
 
 template <typename Genome>
 Generation<Genome> new_generation(std::vector<Genome> specimens) {
