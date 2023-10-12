@@ -3,4 +3,4 @@
 *.o
 *~
 /bin/
-/test/
+.gdb_history
