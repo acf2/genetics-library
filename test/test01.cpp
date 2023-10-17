@@ -15,7 +15,7 @@ public:
 	~Fitness() override = default;
 
 	void cost(genetics::Generation<gene_t> const& generation, genetics::GenerationsCosts<cost_t>& costs) override {
-		auto& specimens = std::get<0>(generation);
+		auto& specimens = std::get<genetics::GENOME_ID>(generation);
 		costs.resize(specimens.size());
 		std::transform(begin(specimens), end(specimens), begin(costs), [](gene_t const& specimen) -> cost_t {
 			gene_t constexpr ideal = 100;
@@ -28,10 +28,10 @@ class Crossover : public genetics::ICrossover<gene_t, cost_t> {
 public:
 	~Crossover() override = default;
 
-	bool is_symmetric() override { return true; }
+	bool does_commute() const override { return true; }
 
 	gene_t cross(genetics::Generation<gene_t> const& generation, genetics::GenerationsCosts<cost_t> const& costs, std::size_t parent1, std::size_t parent2) {
-		auto& specimens = std::get<0>(generation);
+		auto& specimens = std::get<genetics::GENOME_ID>(generation);
 		gene_t new_specimen = (specimens[parent1] + specimens[parent2]) / 2;
 
 		// Mutation
@@ -51,9 +51,9 @@ class Selection : public genetics::ISelection<gene_t, cost_t> {
 public:
 	~Selection() override = default;
 
-	std::size_t survivors() override { return 100; };
+	std::size_t survivors() const override { return 100; };
 
-	std::optional<std::size_t> max_generations() override { return 10; }
+	std::optional<std::size_t> max_generations() const override { return 10; }
 };
 
 int main(int argc, char const *argv[]) {
@@ -63,10 +63,10 @@ int main(int argc, char const *argv[]) {
 
 	auto result = env.evolve(first_gen);
 
-	auto& specimens0 = std::get<0>(first_gen);
-	auto& specimens1 = std::get<0>(result);
+	auto& specimens0 = std::get<genetics::GENOME_ID>(first_gen);
+	auto& specimens1 = std::get<genetics::GENOME_ID>(result);
 
-	cout << "GENERATIONS" << endl;
+	cout << "GENERATIONS: " << std::get<genetics::GENERATION_COUNT_ID>(result) << endl;
 	for (auto i = specimens0.begin(); i != specimens0.end(); ++i) {
 		cout << *i << ' ';
 	}

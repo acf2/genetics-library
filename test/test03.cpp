@@ -11,9 +11,9 @@
 #include "../include/genetics.hpp"
 
 typedef float domain_t;
-typedef std::vector<domain_t> polynomial_t;
+typedef std::vector<domain_t> Polynomial;
 
-domain_t interpret(polynomial_t polynomial, domain_t variable) {
+domain_t interpret(Polynomial polynomial, domain_t variable) {
 	if (polynomial.size() == 0) return static_cast<domain_t>(0);
 	domain_t result = polynomial[polynomial.size()-1];
 	for (size_t i = 1; i < polynomial.size(); ++i) {
@@ -22,7 +22,7 @@ domain_t interpret(polynomial_t polynomial, domain_t variable) {
 	return result;
 }
 
-std::string listing(polynomial_t polynomial, std::string varname = "x") {
+std::string listing(Polynomial polynomial, std::string varname = "x") {
 	std::string result = "";
 	for (size_t i = 0; i < polynomial.size(); ++i) {
 		//if (polynomial[polynomial.size()-i-1] == 0) continue;
@@ -41,7 +41,7 @@ std::string listing(polynomial_t polynomial, std::string varname = "x") {
 	else return result.substr(0, result.size()-3);
 }
 
-double difference_with(polynomial_t const& one, polynomial_t const& another) {
+double difference_with(Polynomial const& one, Polynomial const& another) {
 	double result = 0, monomial_difference;
 	size_t min_size = std::min(one.size(), another.size()),
 		   max_size = std::max(one.size(), another.size());
@@ -131,25 +131,27 @@ std::ostream& operator<<(std::ostream& os, PolynomialCost const& c) {
 	return (os << "(" << c.inaccuracy << "; " << c.size << ")");
 }
 
-class PolyFitness : public genetics::IFitness<polynomial_t, PolynomialCost> {
+PolynomialCost get_polynomial_cost(Polynomial const& polynomial, std::vector<std::pair<domain_t, domain_t>> const& target) {
+	domain_t inaccuracy = 0.f;
+	for (auto&& testcase : target) {
+		domain_t output = interpret(polynomial, testcase.first);
+		//temp = (std::max(testcase.second, temp) - std::min(testcase.second, temp));
+		inaccuracy += (testcase.second - output) * (testcase.second - output);
+	}
+	return PolynomialCost(inaccuracy, polynomial.size());
+}
+
+class PolyFitness : public genetics::IFitness<Polynomial, PolynomialCost> {
 public:
 	PolyFitness(std::vector<std::pair<domain_t, domain_t>> target) : target(target) { }
 	~PolyFitness() override = default;
 
-	void cost(genetics::Generation<polynomial_t> const& generation, genetics::GenerationsCosts<PolynomialCost>& costs) override {
-		auto& polynomials = std::get<0>(generation);
-		auto& ages = std::get<1>(generation);
-
-		domain_t inaccuracy, output;
+	void cost(genetics::Generation<Polynomial> const& generation, genetics::GenerationsCosts<PolynomialCost>& costs) override {
+		auto& polynomials = std::get<genetics::GENOME_ID>(generation);
+		auto& ages = std::get<genetics::AGE_ID>(generation);
 
 		for (size_t index = 0; index < polynomials.size(); ++index) {
-			inaccuracy = 0.f;
-			for (auto&& testcase : target) {
-				output = interpret(polynomials[index], testcase.first);
-				//temp = (std::max(testcase.second, temp) - std::min(testcase.second, temp));
-				inaccuracy += (testcase.second - output) * (testcase.second - output);
-			}
-			costs.emplace_back(inaccuracy, polynomials[index].size());
+			costs.emplace_back(get_polynomial_cost(polynomials[index], target));
 		}
 	}
 
@@ -157,15 +159,15 @@ private:
 	std::vector<std::pair<domain_t, domain_t>> target;
 };
 
-class PolyCrossover : public genetics::ICrossover<polynomial_t, PolynomialCost> {
+class PolyCrossover : public genetics::ICrossover<Polynomial, PolynomialCost> {
 public:
 	~PolyCrossover() override = default;
 
-	bool is_symmetric() { return false; } // Is crossover symmetric?
+	bool does_commute() const { return false; } // Is crossover symmetric?
 	
-	polynomial_t cross(genetics::Generation<polynomial_t> const& generation, genetics::GenerationsCosts<PolynomialCost> const& costs, std::size_t parent1, std::size_t parent2) override {
-		auto& polynomials = std::get<0>(generation);
-		auto& ages = std::get<1>(generation);
+	Polynomial cross(genetics::Generation<Polynomial> const& generation, genetics::GenerationsCosts<PolynomialCost> const& costs, std::size_t parent1, std::size_t parent2) override {
+		auto& polynomials = std::get<genetics::GENOME_ID>(generation);
+		auto& ages = std::get<genetics::AGE_ID>(generation);
 
 
 		auto& one = polynomials[parent1];
@@ -174,7 +176,7 @@ public:
 		// Generate new poly
 		size_t first_joint = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, one.size()),
 			   second_joint = genetics::RandomGenerator::get_instance().get_random_int<size_t>(0, another.size());
-		polynomial_t new_polynomial(first_joint + another.size() - second_joint);
+		Polynomial new_polynomial(first_joint + another.size() - second_joint);
 		std::copy_n(std::begin(one), first_joint, std::begin(new_polynomial));
 		std::copy_n(std::next(std::begin(another), second_joint), another.size() - second_joint, std::next(std::begin(new_polynomial), first_joint));
 
@@ -250,21 +252,25 @@ public:
 	}
 };
 
-class PolySelection : public genetics::ISelection<polynomial_t, PolynomialCost> {
+class PolySelection : public genetics::ISelection<Polynomial, PolynomialCost> {
 public:
 	PolySelection(std::size_t gen_survivors, std::size_t max_generations_til_end) : gen_survivors(gen_survivors), max_generations_til_end(max_generations_til_end) { }
 	~PolySelection() override = default;
 
+	bool is_good_enough(Polynomial const& specimen, PolynomialCost const& cost) {
+		return cost.get_inaccuracy() < .001;
+	}
+
 	// Number of specimens selected from each generation.
-	std::size_t survivors() override { return gen_survivors; }
+	std::size_t survivors() const override { return gen_survivors; }
 	void set_survivors(std::size_t new_val) { gen_survivors = new_val; }
 
 	// Limit of generations for one evolve call
-	std::optional<std::size_t> max_generations() override { return max_generations_til_end; }
+	std::optional<std::size_t> max_generations() const override { return max_generations_til_end; }
 	void set_max_generations(std::size_t new_val) { max_generations_til_end = new_val; }
 
 	// Selection will be performed only every generations_till_eliminaion generations
-	std::size_t generations_till_eliminaion() override { return generations_per_phase; }
+	std::size_t generations_till_eliminaion() const override { return generations_per_phase; }
 	void set_generations_till_elimination(std::size_t new_val) { generations_per_phase = new_val; }
 
 private:
@@ -293,9 +299,9 @@ int main() {
 	std::cout << "How many survivors may live each generation? " << std::flush;
 	std::cin >> survivors;
 
-	std::vector<polynomial_t> initial_polys;
+	std::vector<Polynomial> initial_polys;
 	for (size_t i = 0; i < survivors; ++i) {
-		polynomial_t pbuffer;
+		Polynomial pbuffer;
 		std::size_t const guessed_length = genetics::RandomGenerator::get_instance().get_random_int<std::size_t>(0, 10);
 		for (size_t j = 0; j < guessed_length; ++j) {
 			pbuffer.push_back(genetics::RandomGenerator::get_instance().get_random_float<domain_t>(-10.f, 10.f));
@@ -309,7 +315,7 @@ int main() {
 	auto crossover = std::make_shared<PolyCrossover>();
 	auto selection = std::make_shared<PolySelection>(survivors, generation_cap); // TODO: NOT gencap. I want to see progress
 
-	genetics::Environment<polynomial_t, PolynomialCost> world(fitness, crossover, selection);
+	genetics::Environment<Polynomial, PolynomialCost> world(fitness, crossover, selection);
 
 	//std::size_t const gens_till_death = 1;
 	std::size_t const gens_till_death = 3; // XXX: VERY HEAVY. Initial survivors should be calculated carefully. Even "13" is big enough. "20" won't fit in 32 GB.
@@ -324,7 +330,7 @@ int main() {
 	std::cin.get(ans);
 	if (ans == 'y' || ans == 'Y') {
 		fitness->cost(the_nonglitch, how_fit);
-		auto& specimens = std::get<0>(the_nonglitch);
+		auto& specimens = std::get<genetics::GENOME_ID>(the_nonglitch);
 		for (size_t i = 0; i < specimens.size(); ++i)
 			std::cout << listing(specimens.at(i)) << "; fitness = " << how_fit[i] << std::endl;
 	}
@@ -346,9 +352,21 @@ int main() {
 
 		size_t full_iterations = generation_cap / new_gen_cap;
 
+		bool target_achieved = false;
+		std::size_t old_generation_count = 0;
 		for (size_t i = 0; i < full_iterations; ++i) {
 			the_nonglitch = world.evolve(std::move(the_nonglitch));
-			generation_pool += new_gen_cap;
+
+			auto& specimens = std::get<genetics::GENOME_ID>(the_nonglitch);
+			auto& generation_count = std::get<genetics::GENERATION_COUNT_ID>(the_nonglitch);
+
+			if (selection->is_good_enough(specimens[0], get_polynomial_cost(specimens[0], target))) {
+				target_achieved = true;
+				break;
+			}
+
+			generation_pool += generation_count - old_generation_count;
+			old_generation_count = generation_count;
 			while (generation_pool >= how_many_gens_for_10k_matings) {
 				std::cout << ".";
 				generation_pool -= how_many_gens_for_10k_matings;
@@ -356,25 +374,28 @@ int main() {
 			std::cout << std::flush;
 		}
 
-		// Last gens
-		selection->set_max_generations(generation_cap - full_iterations * new_gen_cap);
-		the_nonglitch = world.evolve(std::move(the_nonglitch));
+		if (!target_achieved) {
+			// Last gens
+			selection->set_max_generations(generation_cap - full_iterations * new_gen_cap);
+			the_nonglitch = world.evolve(std::move(the_nonglitch));
+		}
 		std::cout << std::endl << std::endl;
 	} else {
 		the_nonglitch = world.evolve(std::move(the_nonglitch));
 	}
 
+	auto& specimens = std::get<genetics::GENOME_ID>(the_nonglitch);
+	auto& generation_count = std::get<genetics::GENERATION_COUNT_ID>(the_nonglitch);
+	auto& ages = std::get<genetics::AGE_ID>(the_nonglitch);
+
 	how_fit.clear();
 	fitness->cost(the_nonglitch, how_fit);
 
 	if (how_fit[0].get_inaccuracy() > 0.001) {
-		std::cout << "Civilization of the Nonglitch fell, unable to match your goal." << std::endl << std::endl;
+		std::cout << "Civilization of the Nonglitch fell at generation" << generation_count << ", unable to match your goal." << std::endl << std::endl;
 	} else {
-		std::cout << "The Nonglitch ascended." << std::endl << std::endl;
+		std::cout << "The Nonglitch ascended at generation " << generation_count << "." << std::endl << std::endl;
 	}
-
-	auto& specimens = std::get<0>(the_nonglitch);
-	auto& ages = std::get<1>(the_nonglitch);
 
 	std::cout << "Best match:" << std::endl;
 	for (auto& testcase : target) {

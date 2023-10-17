@@ -77,14 +77,19 @@ public:
 	}
 };
 
+std::size_t constexpr GENOME_ID = 0,
+                      GENERATION_COUNT_ID = 1,
+                      AGE_ID = 2;
+
 template <typename Genome>
 using Generation = std::tuple<std::vector<Genome>,
+                              std::size_t, // Generation number
                               std::optional<std::vector<std::size_t>>>; // this is ages of specimens, man. Don't forget.
 
 template <typename Genome>
 Generation<Genome> new_generation(std::vector<Genome> specimens) {
 	std::size_t const specimens_size = specimens.size();
-	return std::make_tuple(std::move(specimens), std::vector<std::size_t>(specimens_size, 0));
+	return std::make_tuple(std::move(specimens), 0, std::vector<std::size_t>(specimens_size, 0));
 }
 
 template <typename Cost>
@@ -111,8 +116,8 @@ class ICrossover {
 public:
 	virtual ~ICrossover() = default;
 
-	virtual bool is_symmetric() = 0; // Is crossover symmetric?
-	virtual std::size_t default_offspring_amount() { return 1; } // How much offspring should a pair have by default?
+	virtual bool does_commute() const = 0; // Is crossover symmetric?
+	virtual std::size_t default_offspring_amount() const { return 1; } // How much offspring should a pair have by default?
 
 	// How to scale offspring amount due to high fitness? - This is a must, if one wants to implement specimen aging
 	//     ...after all, this is how real evolution works
@@ -129,15 +134,16 @@ public:
 	virtual ~ISelection() = default;
 
 	// Number of specimens selected from each generation.
-	virtual std::size_t survivors() = 0;
+	virtual std::size_t survivors() const = 0;
 
-	//std::function<bool(Cost)> good_enough; // Check for some specimen with good enough fitness
+	// Check for some specimen with good enough fitness
+	virtual bool is_good_enough(Genome const& specimen, Cost const& cost) { return false; }
 	
 	// Limit of generations for one evolve call
-	virtual std::optional<std::size_t> max_generations() { return std::nullopt; }
+	virtual std::optional<std::size_t> max_generations() const { return std::nullopt; }
 
 	// Selection will be performed only every generations_till_eliminaion generations
-	virtual std::size_t generations_till_eliminaion() { return 1; }
+	virtual std::size_t generations_till_eliminaion() const { return 1; }
 };
 
 /*
@@ -167,11 +173,12 @@ public:
 
 	// Main function
 	Generation<Genome> evolve(Generation<Genome> generation) {
-		auto& specimens = std::get<0>(generation);
-		auto& ages = std::get<1>(generation);
+		auto& specimens = std::get<GENOME_ID>(generation);
+		auto& generation_count = std::get<GENERATION_COUNT_ID>(generation);
+		auto& ages = std::get<AGE_ID>(generation);
 		GenerationsCosts<Cost> costs;
 
-		approximate_size_of_generation_container = compute_approximate_size_of_generation_container();
+		std::size_t approximate_size_of_generation_container = compute_approximate_size_of_generation_container();
 
 		specimens.reserve(approximate_size_of_generation_container);
 		if (ages) {
@@ -182,17 +189,24 @@ public:
 		// Compute costs first time
 		compute_fitness(generation, costs);
 
-		std::size_t generations_without_eliminations = 0;
-
-		// TODO: max_generations can be nullopt
-		for (std::size_t i = 0; i < selection->max_generations().value(); ++i) {
+		auto starting_generation = generation_count;
+		auto const max_generations = selection->max_generations();
+		for (;;) {
 			compute_crossover(generation, costs);
-			++generations_without_eliminations;
+			++generation_count;
 
-			if (generations_without_eliminations >= selection->generations_till_eliminaion()) {
-				generations_without_eliminations = 0;
+			if (generation_count % selection->generations_till_eliminaion() == 0) {
 				compute_fitness(generation, costs);
 				eliminate_losers(generation, costs);
+
+				// NOTE: Why? Because first specimen must be the best, after sorting
+				if (selection->is_good_enough(specimens[0], costs[0])) {
+					break;
+				}
+			}
+
+			if (max_generations && (generation_count - starting_generation) >= max_generations.value()) {
+				break;
 			}
 		}
 
@@ -201,7 +215,6 @@ public:
 
 private:
 	std::size_t number_of_threads;
-	std::size_t approximate_size_of_generation_container;
 
 	std::shared_ptr<IFitness<Genome, Cost>> fitness;
 	std::shared_ptr<ICrossover<Genome, Cost>> crossover;
@@ -210,7 +223,7 @@ private:
 
 	// Calculate approximate size of generation container (to minimize reallocations)
 	// offspring_amount is not considered, but it should converge to optimal capacity quickly (provided that resize() of vector does not change capacity)
-	std::size_t compute_approximate_size_of_generation_container() {
+	std::size_t compute_approximate_size_of_generation_container() const {
 		std::size_t generation_size_estimation = selection->survivors();
 
 		// For each generation, when elimination did not occur, we must cumulatively multiply required space
@@ -223,7 +236,7 @@ private:
 			std::size_t new_specimens = generation_size_estimation
 			                            * generation_size_estimation
 			                            - generation_size_estimation;
-			if (crossover->is_symmetric()) new_specimens /= 2;
+			if (crossover->does_commute()) new_specimens /= 2;
 			new_specimens *= crossover->default_offspring_amount();
 
 			generation_size_estimation += new_specimens;
@@ -243,8 +256,8 @@ private:
 		//     In short? Parents age, when they give birth to offspring
 		std::size_t const default_offspring = crossover->default_offspring_amount();
 
-		auto& specimens = std::get<0>(generation);
-		auto& ages = std::get<1>(generation);
+		auto& specimens = std::get<GENOME_ID>(generation);
+		auto& ages = std::get<AGE_ID>(generation);
 
 		std::size_t const specimens_old_size = specimens.size();
 
@@ -255,7 +268,7 @@ private:
 		}
 
 		for (std::size_t i = 0; i < specimens_old_size; ++i) {
-			std::size_t starting_specimen = crossover->is_symmetric() ? 0 : i+1;
+			std::size_t starting_specimen = crossover->does_commute() ? 0 : i+1;
 
 			for (std::size_t j = i+1; j < specimens_old_size; ++j) {
 				if (i == j) continue;
@@ -288,8 +301,8 @@ private:
 		// NOTES:
 		//   - All "winners" should be moved/swapped to first positions
 		//   - Then container should be resized to target size
-		auto& specimens = std::get<0>(generation);
-		auto& ages = std::get<1>(generation);
+		auto& specimens = std::get<GENOME_ID>(generation);
+		auto& ages = std::get<AGE_ID>(generation);
 
 		auto&& sort_permutation = sort_to_permutation(costs, [](Cost const& one, Cost const& another) { return one < another; });
 
