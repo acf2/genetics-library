@@ -51,15 +51,15 @@ void apply_permutation_in_place(std::vector<T>& vec, std::vector<std::size_t> pe
 class RandomGenerator {
 private:
 	std::mt19937 engine;
-	std::uniform_real_distribution<float> distribution;
 
-	RandomGenerator() : distribution(0.0, 1.0) {
+	RandomGenerator() {
 		std::random_device rd;
 		engine.seed(rd());
 	}
 	RandomGenerator(RandomGenerator const&) = delete;
 	RandomGenerator& operator=(RandomGenerator&) = delete;
 	~RandomGenerator() { }
+
 public:
 	static RandomGenerator& get_instance() {
 		static RandomGenerator instance;
@@ -77,14 +77,14 @@ public:
 	}
 };
 
-std::size_t constexpr GENOME_ID = 0,
+std::size_t constexpr SPECIMENS_ID = 0,
                       GENERATION_COUNT_ID = 1,
                       AGE_ID = 2;
 
 template <typename Genome>
 using Generation = std::tuple<std::vector<Genome>,
-                              std::size_t, // Generation number
-                              std::optional<std::vector<std::size_t>>>; // this is ages of specimens, man. Don't forget.
+                              std::size_t,
+                              std::optional<std::vector<std::size_t>>>;
 
 template <typename Genome>
 Generation<Genome> new_generation(std::vector<Genome> specimens) {
@@ -100,7 +100,7 @@ class IFitness {
 public:
 	virtual ~IFitness() = default;
 
-	// All-at-once computation, because from framework POV is parallelizes poorly
+	// All-at-once computation, because from framework POV it parallelizes poorly
 	// Also, must be computed "in place": the most complicated part for framework user
 	// Framework guarantees that size of costs will be 0, and it's capacity will be somewhat close to optimal
 	virtual void cost(Generation<Genome> const& generation, GenerationsCosts<Cost>& costs) = 0;
@@ -146,6 +146,7 @@ public:
 	virtual std::size_t generations_till_eliminaion() const { return 1; }
 };
 
+// XXX: Probably should be distributed among crossover and selection
 /*
 template <typename Genome, typename Cost>
 class ISimilarity {
@@ -173,7 +174,7 @@ public:
 
 	// Main function
 	Generation<Genome> evolve(Generation<Genome> generation) {
-		auto& specimens = std::get<GENOME_ID>(generation);
+		auto& specimens = std::get<SPECIMENS_ID>(generation);
 		auto& generation_count = std::get<GENERATION_COUNT_ID>(generation);
 		auto& ages = std::get<AGE_ID>(generation);
 		GenerationsCosts<Cost> costs;
@@ -231,7 +232,7 @@ private:
 		// Each generation:
 		//   - All specimen crossover with all specimens (n * n)
 		//   - But! Specimens do not crossover with themselves (- n)
-		//   - And if crossover is symmetric, we don't need half of that (/ 2)
+		//   - And if crossover commutes, we don't need half of that (/ 2)
 		for (std::size_t i = 0; i < selection->generations_till_eliminaion(); ++i) {
 			std::size_t new_specimens = generation_size_estimation
 			                            * generation_size_estimation
@@ -249,14 +250,14 @@ private:
 		// Sequential for now, but it should not be heavy
 		// TODO: Redesign for any number of threads
 		// NOTES:
-		//   - Symmetric crossover should not use the same specimens twice: use only half of the matrix
+		//   - Commutative crossover should not use the same specimens twice: use only half of the matrix
 		//   - Default offspring amount controls how many times crossover for this particular pair is called
 		//   - Offspring amount shows how much more offspring should a pair have, if it's fitness is high (close to zero)
 		//   - Each crossover phase must increase age of specimen (because it is used when computing fitness)
 		//     In short? Parents age, when they give birth to offspring
 		std::size_t const default_offspring = crossover->default_offspring_amount();
 
-		auto& specimens = std::get<GENOME_ID>(generation);
+		auto& specimens = std::get<SPECIMENS_ID>(generation);
 		auto& ages = std::get<AGE_ID>(generation);
 
 		std::size_t const specimens_old_size = specimens.size();
@@ -287,7 +288,7 @@ private:
 
 	// modifies costs
 	// Sequential! User MUST add parallelization here by himself.
-	// It's the most heavy function of all, but it depends on every specimen at once
+	// It's the most heavy function of all, but it depends on all specimens at once
 	// thus, it's not possible to parallelize this in framework
 	void compute_fitness(Generation<Genome> const& generation, GenerationsCosts<Cost>& costs) {
 		costs.resize(0);
@@ -301,7 +302,7 @@ private:
 		// NOTES:
 		//   - All "winners" should be moved/swapped to first positions
 		//   - Then container should be resized to target size
-		auto& specimens = std::get<GENOME_ID>(generation);
+		auto& specimens = std::get<SPECIMENS_ID>(generation);
 		auto& ages = std::get<AGE_ID>(generation);
 
 		auto&& sort_permutation = sort_to_permutation(costs, [](Cost const& one, Cost const& another) { return one < another; });

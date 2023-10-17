@@ -147,7 +147,7 @@ public:
 	~PolyFitness() override = default;
 
 	void cost(genetics::Generation<Polynomial> const& generation, genetics::GenerationsCosts<PolynomialCost>& costs) override {
-		auto& polynomials = std::get<genetics::GENOME_ID>(generation);
+		auto& polynomials = std::get<genetics::SPECIMENS_ID>(generation);
 		auto& ages = std::get<genetics::AGE_ID>(generation);
 
 		for (size_t index = 0; index < polynomials.size(); ++index) {
@@ -166,7 +166,7 @@ public:
 	bool does_commute() const { return false; } // Is crossover symmetric?
 	
 	Polynomial cross(genetics::Generation<Polynomial> const& generation, genetics::GenerationsCosts<PolynomialCost> const& costs, std::size_t parent1, std::size_t parent2) override {
-		auto& polynomials = std::get<genetics::GENOME_ID>(generation);
+		auto& polynomials = std::get<genetics::SPECIMENS_ID>(generation);
 		auto& ages = std::get<genetics::AGE_ID>(generation);
 
 
@@ -330,7 +330,7 @@ int main() {
 	std::cin.get(ans);
 	if (ans == 'y' || ans == 'Y') {
 		fitness->cost(the_nonglitch, how_fit);
-		auto& specimens = std::get<genetics::GENOME_ID>(the_nonglitch);
+		auto& specimens = std::get<genetics::SPECIMENS_ID>(the_nonglitch);
 		for (size_t i = 0; i < specimens.size(); ++i)
 			std::cout << listing(specimens.at(i)) << "; fitness = " << how_fit[i] << std::endl;
 	}
@@ -357,7 +357,7 @@ int main() {
 		for (size_t i = 0; i < full_iterations; ++i) {
 			the_nonglitch = world.evolve(std::move(the_nonglitch));
 
-			auto& specimens = std::get<genetics::GENOME_ID>(the_nonglitch);
+			auto& specimens = std::get<genetics::SPECIMENS_ID>(the_nonglitch);
 			auto& generation_count = std::get<genetics::GENERATION_COUNT_ID>(the_nonglitch);
 
 			if (selection->is_good_enough(specimens[0], get_polynomial_cost(specimens[0], target))) {
@@ -384,7 +384,7 @@ int main() {
 		the_nonglitch = world.evolve(std::move(the_nonglitch));
 	}
 
-	auto& specimens = std::get<genetics::GENOME_ID>(the_nonglitch);
+	auto& specimens = std::get<genetics::SPECIMENS_ID>(the_nonglitch);
 	auto& generation_count = std::get<genetics::GENERATION_COUNT_ID>(the_nonglitch);
 	auto& ages = std::get<genetics::AGE_ID>(the_nonglitch);
 

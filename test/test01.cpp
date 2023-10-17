@@ -15,7 +15,7 @@ public:
 	~Fitness() override = default;
 
 	void cost(genetics::Generation<gene_t> const& generation, genetics::GenerationsCosts<cost_t>& costs) override {
-		auto& specimens = std::get<genetics::GENOME_ID>(generation);
+		auto& specimens = std::get<genetics::SPECIMENS_ID>(generation);
 		costs.resize(specimens.size());
 		std::transform(begin(specimens), end(specimens), begin(costs), [](gene_t const& specimen) -> cost_t {
 			gene_t constexpr ideal = 100;
@@ -31,7 +31,7 @@ public:
 	bool does_commute() const override { return true; }
 
 	gene_t cross(genetics::Generation<gene_t> const& generation, genetics::GenerationsCosts<cost_t> const& costs, std::size_t parent1, std::size_t parent2) {
-		auto& specimens = std::get<genetics::GENOME_ID>(generation);
+		auto& specimens = std::get<genetics::SPECIMENS_ID>(generation);
 		gene_t new_specimen = (specimens[parent1] + specimens[parent2]) / 2;
 
 		// Mutation
@@ -63,8 +63,8 @@ int main(int argc, char const *argv[]) {
 
 	auto result = env.evolve(first_gen);
 
-	auto& specimens0 = std::get<genetics::GENOME_ID>(first_gen);
-	auto& specimens1 = std::get<genetics::GENOME_ID>(result);
+	auto& specimens0 = std::get<genetics::SPECIMENS_ID>(first_gen);
+	auto& specimens1 = std::get<genetics::SPECIMENS_ID>(result);
 
 	cout << "GENERATIONS: " << std::get<genetics::GENERATION_COUNT_ID>(result) << endl;
 	for (auto i = specimens0.begin(); i != specimens0.end(); ++i) {
